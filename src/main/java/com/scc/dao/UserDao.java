@@ -1,3 +1,4 @@
+
 package com.scc.dao;
 
 import com.scc.model.User;
@@ -11,10 +12,12 @@ import java.util.List;
 
 public class UserDao {
 
-    // Register a new account that requires approval
+    // REGISTER A NEW ACCOUNT
     public boolean registerUser(
-            String username, String email,
-            String password, String role) {
+            String username,
+            String email,
+            String password,
+            String role) {
 
         String sql = "INSERT INTO users " +
                 "(username, email, password, roles, status) " +
@@ -36,10 +39,12 @@ public class UserDao {
         }
     }
 
-    // Add an account directly as an administrator
+    // ADD AN ACCOUNT BY ADMIN
     public boolean addUser(
-            String username, String email,
-            String password, String role) {
+            String username,
+            String email,
+            String password,
+            String role) {
 
         String sql = "INSERT INTO users " +
                 "(username, email, password, roles, status) " +
@@ -61,7 +66,7 @@ public class UserDao {
         }
     }
 
-    // Retrieve all accounts
+    // RETRIEVE ALL USER ACCOUNTS
     public List<User> getAllUsers() {
         return getUsers(
                 "SELECT id, username, email, password, roles, status " +
@@ -70,7 +75,7 @@ public class UserDao {
         );
     }
 
-    // Retrieve pending accounts of every role
+    // RETRIEVE PENDING ACCOUNTS
     public List<User> getPendingUsers() {
         return getUsers(
                 "SELECT id, username, email, password, roles, status " +
@@ -79,7 +84,9 @@ public class UserDao {
         );
     }
 
+    // REUSABLE METHOD TO RETRIEVE USERS
     private List<User> getUsers(String sql, String status) {
+
         List<User> users = new ArrayList<>();
 
         try (Connection conn = DatabaseConnection.getConnection();
@@ -90,6 +97,7 @@ public class UserDao {
             }
 
             try (ResultSet rs = ps.executeQuery()) {
+
                 while (rs.next()) {
                     users.add(new User(
                             rs.getInt("id"),
@@ -109,8 +117,9 @@ public class UserDao {
         return users;
     }
 
-    // Approve a pending account
+    // APPROVE A PENDING ACCOUNT
     public boolean approveUser(int userId) {
+
         String sql = "UPDATE users SET status = 'APPROVED' " +
                 "WHERE id = ? AND status = 'PENDING'";
 
@@ -118,6 +127,7 @@ public class UserDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setInt(1, userId);
+
             return ps.executeUpdate() > 0;
 
         } catch (SQLException e) {
@@ -126,10 +136,12 @@ public class UserDao {
         }
     }
 
-    // Update username, email, and role
+    // UPDATE USERNAME, EMAIL, AND ROLE
     public boolean updateUser(
-            int userId, String username,
-            String email, String role) {
+            int userId,
+            String username,
+            String email,
+            String role) {
 
         String sql = "UPDATE users SET username = ?, " +
                 "email = ?, roles = ? WHERE id = ? " +
@@ -151,8 +163,33 @@ public class UserDao {
         }
     }
 
-    // Deactivate an account without deleting its history
+    // NEW: UPDATE USER ROLE AND STATUS
+    public boolean updateUserRoleAndStatus(
+            int userId,
+            String newRole,
+            String newStatus) {
+
+        String sql = "UPDATE users SET roles = ?, status = ? WHERE id = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, newRole.toUpperCase());
+            ps.setString(2, newStatus.toUpperCase());
+            ps.setInt(3, userId);
+
+            return ps.executeUpdate() > 0;
+
+        } catch (SQLException e) {
+            System.err.println("Updating user role and status failed: "
+                    + e.getMessage());
+            return false;
+        }
+    }
+
+    // DEACTIVATE AN ACCOUNT
     public boolean deactivateUser(int userId) {
+
         String sql = "UPDATE users SET status = 'DEACTIVATED' " +
                 "WHERE id = ? AND status != 'DEACTIVATED'";
 
@@ -160,6 +197,7 @@ public class UserDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setInt(1, userId);
+
             return ps.executeUpdate() > 0;
 
         } catch (SQLException e) {
@@ -168,9 +206,11 @@ public class UserDao {
         }
     }
 
-    // Retrieve user by username for authentication
+    // RETRIEVE USER BY USERNAME
     public User getUserByUsername(String username) {
-        String sql = "SELECT id, username, email, password, roles, status FROM users WHERE username = ?";
+
+        String sql = "SELECT id, username, email, password, roles, status " +
+                "FROM users WHERE username = ?";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -178,6 +218,7 @@ public class UserDao {
             ps.setString(1, username);
 
             try (ResultSet rs = ps.executeQuery()) {
+
                 if (rs.next()) {
                     return new User(
                             rs.getInt("id"),
@@ -191,7 +232,8 @@ public class UserDao {
             }
 
         } catch (SQLException e) {
-            System.err.println("Retrieving user by username failed: " + e.getMessage());
+            System.err.println("Retrieving user by username failed: "
+                    + e.getMessage());
         }
 
         return null;

@@ -1,4 +1,3 @@
-
 package com.scc.ui;
 
 import com.scc.dao.UserDao;
@@ -98,13 +97,8 @@ public class Authentication {
             return;
         }
 
-        // Public registration creates USER accounts only.
-        // The account must be approved before login.
         boolean registered = userDao.registerUser(
-                username,
-                email,
-                password,
-                "USER"
+                username, email, password, "USER"
         );
 
         if (registered) {
@@ -120,7 +114,7 @@ public class Authentication {
     // ROLE ROUTING
     private void routeUser(User user) {
         if ("ADMIN".equalsIgnoreCase(user.roles())) {
-            new AdminMenu(userDao, sc).start();
+            new AdminMenu(userDao, sc, user).start();
         } else {
             System.out.println("\nYour role is: " + user.roles());
             System.out.println("Your dashboard has not been implemented yet.");
