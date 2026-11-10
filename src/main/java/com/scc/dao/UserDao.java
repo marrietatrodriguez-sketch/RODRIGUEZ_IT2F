@@ -12,16 +12,23 @@ import java.util.List;
 
 public class UserDao {
 
-    // REGISTER A NEW ACCOUNT
-    public boolean registerUser(
-            String username,
-            String email,
-            String password,
-            String role) {
+    private final ActivityLogDao activityLogDao = new ActivityLogDao();
 
-        String sql = "INSERT INTO users " +
-                "(username, email, password, roles, status) " +
-                "VALUES (?, ?, ?, ?, 'PENDING')";
+    // REGISTER USER
+    public boolean registerUser(String username, String email, String password, String role) {
+
+        if (role == null ||
+                !List.of("USER", "MANAGER", "ADMIN").contains(role.toUpperCase())) {
+
+            System.out.println("Registration failed: invalid account role.");
+            return false;
+        }
+
+        String selectedRole = role.toUpperCase();
+
+        String sql = "INSERT INTO Users "
+                + "(Username, Email, Password, Role, Status) "
+                + "VALUES (?, ?, ?, ?, 'PENDING')";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -29,26 +36,36 @@ public class UserDao {
             ps.setString(1, username);
             ps.setString(2, email);
             ps.setString(3, password);
-            ps.setString(4, role.toUpperCase());
+            ps.setString(4, selectedRole);
 
-            return ps.executeUpdate() > 0;
+            if (ps.executeUpdate() > 0) {
+
+                int newId = getUserIdByUsername(username);
+
+                activityLogDao.logAction(
+                        newId,
+                        "ACCOUNT_REGISTERED",
+                        "User " + username + " registered with role "
+                                + selectedRole + ". Status: PENDING."
+                );
+
+                return true;
+            }
 
         } catch (SQLException e) {
             System.err.println("Registration failed: " + e.getMessage());
-            return false;
         }
+
+        return false;
     }
 
-    // ADD AN ACCOUNT BY ADMIN
-    public boolean addUser(
-            String username,
-            String email,
-            String password,
-            String role) {
+    // ADD USER BY ADMIN
+    public boolean addUser(String username, String email, String password,
+                           String role, int adminId) {
 
-        String sql = "INSERT INTO users " +
-                "(username, email, password, roles, status) " +
-                "VALUES (?, ?, ?, ?, 'APPROVED')";
+        String sql = "INSERT INTO Users "
+                + "(Username, Email, Password, Role, Status) "
+                + "VALUES (?, ?, ?, ?, 'APPROVED')";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -58,54 +75,205 @@ public class UserDao {
             ps.setString(3, password);
             ps.setString(4, role.toUpperCase());
 
-            return ps.executeUpdate() > 0;
+            if (ps.executeUpdate() > 0) {
+
+                int newId = getUserIdByUsername(username);
+
+                activityLogDao.logAction(
+                        adminId,
+                        "USER_ADDED",
+                        "Admin " + adminId + " added account for User ID "
+                                + newId + " (" + username + ")."
+                );
+
+                return true;
+            }
 
         } catch (SQLException e) {
             System.err.println("Adding user failed: " + e.getMessage());
-            return false;
         }
+
+        return false;
     }
 
-    // RETRIEVE ALL USER ACCOUNTS
+    // GET ALL USERS
     public List<User> getAllUsers() {
-        return getUsers(
-                "SELECT id, username, email, password, roles, status " +
-                        "FROM users ORDER BY id",
+
+        return queryUsers(
+                "SELECT User_ID, Username, Email, Password, Role, Status "
+                        + "FROM Users ORDER BY User_ID",
                 null
         );
     }
 
-    // RETRIEVE PENDING ACCOUNTS
+    // GET PENDING USERS
     public List<User> getPendingUsers() {
-        return getUsers(
-                "SELECT id, username, email, password, roles, status " +
-                        "FROM users WHERE status = ? ORDER BY id",
+
+        return queryUsers(
+                "SELECT User_ID, Username, Email, Password, Role, Status "
+                        + "FROM Users WHERE Status = ? ORDER BY User_ID",
                 "PENDING"
         );
     }
 
-    // REUSABLE METHOD TO RETRIEVE USERS
-    private List<User> getUsers(String sql, String status) {
+    // GET USER BY USERNAME
+    public User getUserByUsername(String username) {
+
+        List<User> list = queryUsers(
+                "SELECT User_ID, Username, Email, Password, Role, Status "
+                        + "FROM Users WHERE Username = ?",
+                username
+        );
+
+        return list.isEmpty() ? null : list.get(0);
+    }
+
+    // APPROVE USER
+    public boolean approveUser(int userId, int adminId) {
+
+        String sql = "UPDATE Users SET Status = 'APPROVED' "
+                + "WHERE User_ID = ? AND Status = 'PENDING'";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+
+            if (ps.executeUpdate() > 0) {
+
+                activityLogDao.logAction(
+                        adminId,
+                        "USER_APPROVED",
+                        "Admin " + adminId + " approved account for User ID "
+                                + userId + "."
+                );
+
+                return true;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Approval failed: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    // UPDATE USER ROLE AND STATUS
+    public boolean updateUserRoleAndStatus(int userId, String newRole,
+                                           String newStatus, int adminId) {
+
+        String sql = "UPDATE Users SET Role = ?, Status = ? "
+                + "WHERE User_ID = ? AND Status != 'DEACTIVATED'";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, newRole.toUpperCase());
+            ps.setString(2, newStatus.toUpperCase());
+            ps.setInt(3, userId);
+
+            if (ps.executeUpdate() > 0) {
+
+                activityLogDao.logAction(
+                        adminId,
+                        "USER_UPDATED",
+                        "Admin " + adminId + " changed User " + userId
+                                + " to role=" + newRole.toUpperCase()
+                                + ", status=" + newStatus.toUpperCase() + "."
+                );
+
+                return true;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Update failed: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    // DEACTIVATE USER
+    public boolean deactivateUser(int userId, int adminId) {
+
+        String sql = "UPDATE Users SET Status = 'DEACTIVATED' "
+                + "WHERE User_ID = ? AND Status != 'DEACTIVATED'";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+
+            if (ps.executeUpdate() > 0) {
+
+                activityLogDao.logAction(
+                        adminId,
+                        "USER_DEACTIVATED",
+                        "Admin " + adminId + " deactivated User ID "
+                                + userId + "."
+                );
+
+                return true;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Deactivation failed: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    // UPDATE PROFILE
+    public boolean updateProfile(int userId, String email) {
+
+        String sql = "UPDATE Users SET Email = ? WHERE User_ID = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, email);
+            ps.setInt(2, userId);
+
+            if (ps.executeUpdate() > 0) {
+
+                activityLogDao.logAction(
+                        userId,
+                        "PROFILE_UPDATED",
+                        "User " + userId + " updated profile email."
+                );
+
+                return true;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Profile update failed: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    // QUERY USERS
+    private List<User> queryUsers(String sql, String param) {
 
         List<User> users = new ArrayList<>();
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            if (status != null) {
-                ps.setString(1, status);
+            if (param != null) {
+                ps.setString(1, param);
             }
 
             try (ResultSet rs = ps.executeQuery()) {
 
                 while (rs.next()) {
+
                     users.add(new User(
-                            rs.getInt("id"),
-                            rs.getString("username"),
-                            rs.getString("email"),
-                            rs.getString("password"),
-                            rs.getString("roles"),
-                            rs.getString("status")
+                            rs.getInt("User_ID"),
+                            rs.getString("Username"),
+                            rs.getString("Email"),
+                            rs.getString("Password"),
+                            rs.getString("Role"),
+                            rs.getString("Status")
                     ));
                 }
             }
@@ -117,100 +285,10 @@ public class UserDao {
         return users;
     }
 
-    // APPROVE A PENDING ACCOUNT
-    public boolean approveUser(int userId) {
+    // GET USER ID BY USERNAME
+    private int getUserIdByUsername(String username) {
 
-        String sql = "UPDATE users SET status = 'APPROVED' " +
-                "WHERE id = ? AND status = 'PENDING'";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, userId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Approval failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    // UPDATE USERNAME, EMAIL, AND ROLE
-    public boolean updateUser(
-            int userId,
-            String username,
-            String email,
-            String role) {
-
-        String sql = "UPDATE users SET username = ?, " +
-                "email = ?, roles = ? WHERE id = ? " +
-                "AND status != 'DEACTIVATED'";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, username);
-            ps.setString(2, email);
-            ps.setString(3, role.toUpperCase());
-            ps.setInt(4, userId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Updating user failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    // NEW: UPDATE USER ROLE AND STATUS
-    public boolean updateUserRoleAndStatus(
-            int userId,
-            String newRole,
-            String newStatus) {
-
-        String sql = "UPDATE users SET roles = ?, status = ? WHERE id = ?";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, newRole.toUpperCase());
-            ps.setString(2, newStatus.toUpperCase());
-            ps.setInt(3, userId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Updating user role and status failed: "
-                    + e.getMessage());
-            return false;
-        }
-    }
-
-    // DEACTIVATE AN ACCOUNT
-    public boolean deactivateUser(int userId) {
-
-        String sql = "UPDATE users SET status = 'DEACTIVATED' " +
-                "WHERE id = ? AND status != 'DEACTIVATED'";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setInt(1, userId);
-
-            return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Deactivation failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    // RETRIEVE USER BY USERNAME
-    public User getUserByUsername(String username) {
-
-        String sql = "SELECT id, username, email, password, roles, status " +
-                "FROM users WHERE username = ?";
+        String sql = "SELECT User_ID FROM Users WHERE Username = ?";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -220,22 +298,14 @@ public class UserDao {
             try (ResultSet rs = ps.executeQuery()) {
 
                 if (rs.next()) {
-                    return new User(
-                            rs.getInt("id"),
-                            rs.getString("username"),
-                            rs.getString("email"),
-                            rs.getString("password"),
-                            rs.getString("roles"),
-                            rs.getString("status")
-                    );
+                    return rs.getInt("User_ID");
                 }
             }
 
         } catch (SQLException e) {
-            System.err.println("Retrieving user by username failed: "
-                    + e.getMessage());
+            System.err.println("ID lookup failed: " + e.getMessage());
         }
 
-        return null;
+        return -1;
     }
 }

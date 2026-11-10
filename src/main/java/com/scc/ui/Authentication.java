@@ -1,6 +1,12 @@
+
 package com.scc.ui;
 
+import com.scc.dao.ActivityLogDao;
 import com.scc.dao.UserDao;
+import com.scc.menu.AdminMenu;
+import com.scc.menu.ManagerMenu;
+import com.scc.menu.MenuUtil;
+import com.scc.menu.UserMenu;
 import com.scc.model.User;
 
 import java.util.Scanner;
@@ -8,15 +14,19 @@ import java.util.Scanner;
 public class Authentication {
 
     private final UserDao userDao;
+    private final ActivityLogDao activityLogDao;
     private final Scanner sc;
 
-    public Authentication(UserDao userDao, Scanner sc) {
+    public Authentication(UserDao userDao, ActivityLogDao activityLogDao, Scanner sc) {
         this.userDao = userDao;
+        this.activityLogDao = activityLogDao;
         this.sc = sc;
     }
 
     public void start() {
+
         while (true) {
+
             System.out.println("\n======================================");
             System.out.println("  EVENT EQUIPMENT BORROWING SYSTEM");
             System.out.println("======================================");
@@ -24,17 +34,18 @@ public class Authentication {
             System.out.println("2. Register");
             System.out.println("3. Exit");
             System.out.println("======================================");
-            System.out.print("Enter your choice: ");
 
-            String choice = sc.nextLine().trim();
+            switch (MenuUtil.readLine(sc, "Enter your choice: ")) {
 
-            switch (choice) {
                 case "1" -> login();
+
                 case "2" -> register();
+
                 case "3" -> {
                     System.out.println("Thank you for using the system!");
                     return;
                 }
+
                 default -> System.out.println("Invalid choice. Please try again.");
             }
         }
@@ -42,13 +53,11 @@ public class Authentication {
 
     // LOGIN
     private void login() {
+
         System.out.println("\n========== LOG IN ==========");
 
-        System.out.print("Enter username: ");
-        String username = sc.nextLine().trim();
-
-        System.out.print("Enter password: ");
-        String password = sc.nextLine();
+        String username = MenuUtil.readLine(sc, "Username: ");
+        String password = MenuUtil.readLine(sc, "Password: ");
 
         if (username.isBlank() || password.isBlank()) {
             System.out.println("Username and password are required.");
@@ -69,55 +78,104 @@ public class Authentication {
 
         if (!"APPROVED".equalsIgnoreCase(user.status())) {
             System.out.println("Your account is still pending approval.");
-            System.out.println("Please wait for the administrator to approve it.");
             return;
         }
 
-        System.out.println("\nLogin successful!");
-        System.out.println("Welcome, " + user.username() + "!");
+        // Record login activity
+        // ActivityLogDao automatically adds role, username, and ID.
+        activityLogDao.logAction(
+                user.userId(),
+                "LOGIN",
+                "logged in."
+        );
 
-        routeUser(user);
+        System.out.println("\nLogin successful! Welcome, " + user.username() + "!");
+
+        route(user);
+
+        // Record logout activity
+        activityLogDao.logAction(
+                user.userId(),
+                "LOGOUT",
+                "logged out."
+        );
     }
 
-    // REGISTRATION
+    // REGISTER
     private void register() {
+
         System.out.println("\n========== REGISTER ==========");
 
-        System.out.print("Enter username: ");
-        String username = sc.nextLine().trim();
-
-        System.out.print("Enter email: ");
-        String email = sc.nextLine().trim();
-
-        System.out.print("Enter password: ");
-        String password = sc.nextLine();
+        String username = MenuUtil.readLine(sc, "Username: ");
+        String email = MenuUtil.readLine(sc, "Email: ");
+        String password = MenuUtil.readLine(sc, "Password: ");
 
         if (username.isBlank() || email.isBlank() || password.isBlank()) {
             System.out.println("All fields are required.");
             return;
         }
 
+        System.out.println("\n========== SELECT ACCOUNT ROLE ==========");
+        System.out.println("1. USER");
+        System.out.println("2. MANAGER");
+        System.out.println("3. ADMIN");
+        System.out.println("=========================================");
+
+        String roleChoice = MenuUtil.readLine(sc, "Choose your role: ");
+
+        String role;
+
+        switch (roleChoice) {
+
+            case "1" -> role = "USER";
+
+            case "2" -> role = "MANAGER";
+
+            case "3" -> role = "ADMIN";
+
+            default -> {
+                System.out.println("Invalid role selection. Registration cancelled.");
+                return;
+            }
+        }
+
         boolean registered = userDao.registerUser(
-                username, email, password, "USER"
+                username,
+                email,
+                password,
+                role
         );
 
         if (registered) {
+
             System.out.println("\nRegistration successful!");
-            System.out.println("Your account status is PENDING.");
+            System.out.println("Selected Role: " + role);
+            System.out.println("Account Status: PENDING");
             System.out.println("Please wait for administrator approval.");
+
         } else {
-            System.out.println("Registration failed.");
-            System.out.println("The username or email may already exist.");
+
+            System.out.println("\nRegistration failed.");
+            System.out.println("Username or email may already exist.");
         }
     }
 
-    // ROLE ROUTING
-    private void routeUser(User user) {
-        if ("ADMIN".equalsIgnoreCase(user.roles())) {
-            new AdminMenu(userDao, sc, user).start();
-        } else {
-            System.out.println("\nYour role is: " + user.roles());
-            System.out.println("Your dashboard has not been implemented yet.");
+    // ROLE-BASED MENU ROUTING
+    private void route(User user) {
+
+        switch (user.role().toUpperCase()) {
+
+            case "ADMIN" ->
+                    new AdminMenu(userDao, activityLogDao, sc, user).start();
+
+            case "MANAGER" ->
+                    new ManagerMenu(sc, user).start();
+
+            case "USER" ->
+                    new UserMenu(userDao, sc, user).start();
+
+            default ->
+                    System.out.println("Invalid user role.");
         }
     }
 }
